@@ -86,18 +86,34 @@ class ModelManager:
             out.append((p, 1.0 - p))
         return out
 
-    def train(self, samples: List[Tuple[str,str]]):
-        texts = [t for t,_ in samples]
-        labels = [y for _,y in samples]
-        X_train, X_test, y_train, y_test = train_test_split(texts, labels, test_size=0.2, random_state=42, stratify=labels if len(set(labels))>1 else None)
+    def train(self, samples: List[Tuple[str, str]]):
+        texts = [t for t, _ in samples]
+        labels = [y for _, y in samples]
+
+        # Handle very small datasets gracefully
+        stratify = labels if len(set(labels)) > 1 and min(labels.count(l) for l in set(labels)) > 1 else None
+
+        try:
+            X_train, X_test, y_train, y_test = train_test_split(
+                texts, labels, test_size=0.2, random_state=42, stratify=stratify
+            )
+        except Exception:
+            X_train, y_train = texts, labels
+            X_test, y_test = [], []
 
         pipeline = Pipeline([
-            ("tfidf", TfidfVectorizer(ngram_range=(1,2), min_df=1, max_df=0.95)),
-            ("clf", LinearSVC())  # robust on small data; probas via decision_function
+            ("tfidf", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_df=0.95)),
+            ("clf", LinearSVC())
         ])
         pipeline.fit(X_train, y_train)
-        y_pred = pipeline.predict(X_test) if X_test else []
-        acc = accuracy_score(y_test, y_pred) if y_pred else 1.0
-        f1m = f1_score(y_test, y_pred, average="macro") if y_pred else 1.0
+
+        if X_test:
+            y_pred = pipeline.predict(X_test)
+            acc = accuracy_score(y_test, y_pred)
+            f1m = f1_score(y_test, y_pred, average="macro")
+        else:
+            acc, f1m = 1.0, 1.0
+
         self.save(pipeline)
         return {"accuracy": float(acc), "f1_macro": float(f1m)}
+
